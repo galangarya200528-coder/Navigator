@@ -1,0 +1,149 @@
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigasi Presisi Smart Cap</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { touch-action: manipulation; user-select: none; overflow: hidden; background-color: #0f172a; }
+        .ripple { position: absolute; background: rgba(255, 255, 255, 0.4); border-radius: 50%; transform: scale(0); animation: ripple-animation 0.6s ease-out; pointer-events: none; }
+        @keyframes ripple-animation { to { transform: scale(4); opacity: 0; } }
+        .listening-pulse { animation: pulse-bg 1.5s infinite; }
+        @keyframes pulse-bg {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 40px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center h-screen text-white text-center p-6" onclick="handleScreenTap(event)">
+
+    <div class="relative z-10 space-y-12 w-full max-w-lg">
+        <div id="status-orb" class="w-56 h-56 mx-auto bg-blue-600 rounded-full flex items-center justify-center shadow-2xl transition-all duration-500">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        </div>
+        
+        <div class="space-y-4">
+            <h1 id="status-text" class="text-4xl font-bold tracking-tight">Mencari GPS...</h1>
+            <p id="sub-text" class="text-blue-200 text-xl font-medium italic">Ketuk layar untuk memulai</p>
+        </div>
+
+        <div id="loader" class="hidden flex justify-center space-x-4">
+            <div class="w-5 h-5 bg-blue-400 rounded-full animate-bounce"></div>
+            <div class="w-5 h-5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+            <div class="w-5 h-5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.5s]"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = "AIzaSyBczkuknwIyntuzC7_7RAT9P6Gw1JG33OY";
+        const statusText = document.getElementById('status-text');
+        const subText = document.getElementById('sub-text');
+        const orb = document.getElementById('status-orb');
+        const loader = document.getElementById('loader');
+
+        let userCoords = null;
+
+        // Ambil Lokasi GPS saat web dibuka
+        window.onload = () => {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    userCoords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                    statusText.innerText = "GPS Terkunci";
+                    speak("GPS terkunci. Sebutkan tujuan Anda dengan mengetuk layar.");
+                },
+                () => {
+                    statusText.innerText = "GPS Gagal";
+                    speak("Maaf, gagal mengakses lokasi. Pastikan GPS handphone Anda aktif.");
+                }
+            );
+        };
+
+        function speak(text) {
+            window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.lang = 'id-ID';
+            window.speechSynthesis.speak(utter);
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'id-ID';
+            
+            recognition.onstart = () => {
+                statusText.innerText = "Mendengarkan...";
+                orb.classList.replace('bg-blue-600', 'bg-red-600');
+                orb.classList.add('listening-pulse');
+            };
+
+            recognition.onresult = async (event) => {
+                const transcript = event.results[0][0].transcript;
+                statusText.innerText = "Membuat Rute...";
+                await getRealNav(transcript);
+            };
+
+            recognition.onend = () => {
+                orb.classList.replace('bg-red-600', 'bg-blue-600');
+                orb.classList.remove('listening-pulse');
+                loader.classList.add('hidden');
+            };
+        }
+
+        function handleScreenTap(event) {
+            const ripple = document.createElement('div');
+            ripple.classList.add('ripple');
+            ripple.style.left = `${event.clientX}px`;
+            ripple.style.top = `${event.clientY}px`;
+            document.body.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 600);
+
+            if (recognition) recognition.start();
+        }
+
+        async function getRealNav(destination) {
+            loader.classList.remove('hidden');
+            
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+            
+            // PROMPT YANG LEBIH AMAN: Menyertakan koordinat GPS asli
+            const prompt = `Anda adalah asisten navigasi tunanetra presisi. 
+            Lokasi pengguna saat ini (Latitude, Longitude): ${userCoords ? userCoords.lat + ',' + userCoords.lon : 'Tidak diketahui'}.
+            Tujuan: "${destination}".
+            
+            Tugas: 
+            1. Jika koordinat ada, gunakan pengetahuan peta Anda untuk memberikan arah yang sangat akurat.
+            2. Berikan instruksi "Belok Kiri", "Belok Kanan", atau "Lurus" berdasarkan arah jalan yang benar.
+            3. Jika tujuan terlalu jauh, sarankan transportasi umum.
+            4. Selalu ingatkan: "Gunakan topi sensor Anda untuk mendeteksi benda di depan Anda."
+            
+            Gunakan maksimal 4 kalimat.`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await response.json();
+                const aiText = data.candidates[0].content.parts[0].text;
+                statusText.innerText = "Rute Siap";
+                speak(aiText);
+            } catch (e) {
+                speak("Gagal membuat rute. Coba lagi.");
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
+
+```
